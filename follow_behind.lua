@@ -2,160 +2,71 @@
 -- File: follow_behind.lua
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
 
+local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
+
+local Window = Luna:CreateWindow({
+	Name = "Follow Behind - hedgehog",
+	Subtitle = "Whitelist & Position Lock",
+	LogoID = "82795327169782",
+	LoadingEnabled = true,
+	LoadingTitle = "Luna Interface Suite",
+	LoadingSubtitle = "Credit: hedgehog",
+
+	ConfigSettings = {
+		RootFolder = nil,
+		ConfigFolder = "HedgehogFollowHub"
+	},
+
+	KeySystem = true,
+	KeySettings = {
+		Title = "Hedgehog Key System",
+		Subtitle = "License Verification",
+		Note = "Enter a valid key to unlock Follow Behind (hedgehog). Default keys: HEDGEHOG-KEY or 1234.",
+		SaveInRoot = false,
+		SaveKey = true,
+		Key = {"HEDGEHOG-KEY", "1234"},
+		SecondAction = {
+			Enabled = true,
+			Type = "Link",
+			Parameter = "https://github.com/ngotrongtin242-sudo/roblox-scripts"
+		}
+	}
+})
+
+local MainTab = Window:CreateTab({
+	Name = "Follow",
+	Icon = "directions_run",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+local WhitelistTab = Window:CreateTab({
+	Name = "Whitelist",
+	Icon = "group_add",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
+-- STATE & WHITELIST DATA
 local DISTANCE_BEHIND = 3.5
-local GUI_NAME = "HedgehogFollowUI"
+local isFollowing = false
+local followConn = nil
+local currentTarget = nil
 
-if playerGui:FindFirstChild(GUI_NAME) then
-	playerGui[GUI_NAME]:Destroy()
-end
-
--- 1. UI SETUP
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = GUI_NAME
-screenGui.ResetOnSpawn = false
-screenGui.DisplayOrder = 100
-screenGui.Parent = playerGui
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 280, 0, 276)
-mainFrame.Position = UDim2.new(0.5, -140, 0.62, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-mainFrame.BorderSizePixel = 0
-mainFrame.Parent = screenGui
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
-
-local stroke = Instance.new("UIStroke", mainFrame)
-stroke.Color = Color3.fromRGB(80, 80, 105)
-stroke.Thickness = 1.5
-
-local creditLabel = Instance.new("TextLabel")
-creditLabel.Size = UDim2.new(0.92, 0, 0, 16)
-creditLabel.Position = UDim2.new(0.04, 0, 0.025, 0)
-creditLabel.BackgroundTransparency = 1
-creditLabel.TextColor3 = Color3.fromRGB(130, 165, 255)
-creditLabel.Text = "Credit: hedgehog"
-creditLabel.Font = Enum.Font.GothamBold
-creditLabel.TextSize = 11
-creditLabel.TextXAlignment = Enum.TextXAlignment.Right
-creditLabel.Parent = mainFrame
-
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(0.92, 0, 0, 18)
-statusLabel.Position = UDim2.new(0.04, 0, 0.075, 0)
-statusLabel.BackgroundTransparency = 1
-statusLabel.TextColor3 = Color3.fromRGB(180, 190, 215)
-statusLabel.Text = "Select target in Whitelist, then press button / F"
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 11
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.Parent = mainFrame
-
-local targetInput = Instance.new("TextBox")
-targetInput.Size = UDim2.new(0.46, 0, 0, 32)
-targetInput.Position = UDim2.new(0.04, 0, 0.15, 0)
-targetInput.BackgroundColor3 = Color3.fromRGB(38, 38, 48)
-targetInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-targetInput.PlaceholderColor3 = Color3.fromRGB(145, 145, 165)
-targetInput.PlaceholderText = "Add name..."
-targetInput.Text = ""
-targetInput.Font = Enum.Font.GothamMedium
-targetInput.TextSize = 12
-targetInput.ClearTextOnFocus = false
-targetInput.Parent = mainFrame
-Instance.new("UICorner", targetInput).CornerRadius = UDim.new(0, 7)
-
-local addButton = Instance.new("TextButton")
-addButton.Size = UDim2.new(0.21, 0, 0, 32)
-addButton.Position = UDim2.new(0.515, 0, 0.15, 0)
-addButton.BackgroundColor3 = Color3.fromRGB(60, 115, 220)
-addButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-addButton.Text = "+ ADD"
-addButton.Font = Enum.Font.GothamBold
-addButton.TextSize = 11
-addButton.Parent = mainFrame
-Instance.new("UICorner", addButton).CornerRadius = UDim.new(0, 7)
-
-local scanButton = Instance.new("TextButton")
-scanButton.Size = UDim2.new(0.215, 0, 0, 32)
-scanButton.Position = UDim2.new(0.745, 0, 0.15, 0)
-scanButton.BackgroundColor3 = Color3.fromRGB(85, 85, 105)
-scanButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-scanButton.Text = "SCAN"
-scanButton.Font = Enum.Font.GothamBold
-scanButton.TextSize = 10
-scanButton.Parent = mainFrame
-Instance.new("UICorner", scanButton).CornerRadius = UDim.new(0, 7)
-
-local whitelistScroll = Instance.new("ScrollingFrame")
-whitelistScroll.Size = UDim2.new(0.92, 0, 0, 112)
-whitelistScroll.Position = UDim2.new(0.04, 0, 0.29, 0)
-whitelistScroll.BackgroundColor3 = Color3.fromRGB(32, 32, 40)
-whitelistScroll.BorderSizePixel = 0
-whitelistScroll.ScrollBarThickness = 5
-whitelistScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-whitelistScroll.Parent = mainFrame
-Instance.new("UICorner", whitelistScroll).CornerRadius = UDim.new(0, 8)
-
-local listLayout = Instance.new("UIListLayout", whitelistScroll)
-listLayout.Padding = UDim.new(0, 5)
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
-local listPadding = Instance.new("UIPadding", whitelistScroll)
-listPadding.PaddingTop = UDim.new(0, 6)
-listPadding.PaddingBottom = UDim.new(0, 6)
-listPadding.PaddingLeft = UDim.new(0, 6)
-listPadding.PaddingRight = UDim.new(0, 6)
-
-local actionButton = Instance.new("TextButton")
-actionButton.Size = UDim2.new(0.92, 0, 0, 42)
-actionButton.Position = UDim2.new(0.04, 0, 0.795, 0)
-actionButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-actionButton.Text = "FOLLOW BEHIND (F)"
-actionButton.Font = Enum.Font.GothamBold
-actionButton.TextSize = 13
-actionButton.Parent = mainFrame
-Instance.new("UICorner", actionButton).CornerRadius = UDim.new(0, 8)
-
--- 2. DRAG UI
-local dragging, dragInput, dragStart, startPos
-mainFrame.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		dragging, dragStart, startPos = true, input.Position, mainFrame.Position
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
-		end)
-	end
-end)
-
-mainFrame.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		dragInput = input
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if input == dragInput and dragging then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-	end
-end)
-
--- 3. WHITELIST & TARGETS
 local whitelist = {}
 local selectedTargets = {}
+local followToggle = nil
+local targetDropdown = nil
 
 local function getMyParts()
 	local char = player.Character
-	if not char then return nil, nil, nil end
+	if not char then
+		return nil, nil, nil
+	end
 	return char, char:FindFirstChild("HumanoidRootPart"), char:FindFirstChildOfClass("Humanoid")
 end
 
@@ -167,124 +78,97 @@ local function isValidTargetModel(obj)
 end
 
 local function addNameUnique(nameStr, autoSelect)
-	if not nameStr or nameStr == "" or nameStr == player.Name then return end
+	if not nameStr or nameStr == "" or nameStr == player.Name then
+		return false
+	end
 	for _, existing in ipairs(whitelist) do
 		if existing == nameStr then
-			if autoSelect then selectedTargets[existing] = true end
-			return
+			if autoSelect then
+				selectedTargets[existing] = true
+			end
+			return true
 		end
 	end
 	table.insert(whitelist, nameStr)
-	if autoSelect then selectedTargets[nameStr] = true end
+	if autoSelect then
+		selectedTargets[nameStr] = true
+	end
+	return true
 end
 
-local function refreshWhitelistUI()
-	for _, child in ipairs(whitelistScroll:GetChildren()) do
-		if child:IsA("Frame") then child:Destroy() end
+local function getSelectedList()
+	local chosen = {}
+	for name, isChecked in pairs(selectedTargets) do
+		if isChecked then
+			table.insert(chosen, name)
+		end
 	end
+	return chosen
+end
 
-	for idx, name in ipairs(whitelist) do
-		local isSelected = selectedTargets[name] == true
-		local row = Instance.new("Frame")
-		row.LayoutOrder = idx
-		row.Size = UDim2.new(1, -4, 0, 28)
-		row.BackgroundColor3 = isSelected and Color3.fromRGB(45, 145, 85) or Color3.fromRGB(48, 48, 60)
-		row.BorderSizePixel = 0
-		row.Parent = whitelistScroll
-		Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-
-		local selectBtn = Instance.new("TextButton")
-		selectBtn.Size = UDim2.new(0.82, 0, 1, 0)
-		selectBtn.BackgroundTransparency = 1
-		selectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		selectBtn.Text = (isSelected and "[SELECTED] " or "[SELECT] ") .. name
-		selectBtn.Font = isSelected and Enum.Font.GothamBold or Enum.Font.Gotham
-		selectBtn.TextSize = 11
-		selectBtn.TextXAlignment = Enum.TextXAlignment.Left
-		selectBtn.Parent = row
-		Instance.new("UIPadding", selectBtn).PaddingLeft = UDim.new(0, 8)
-
-		local removeBtn = Instance.new("TextButton")
-		removeBtn.Size = UDim2.new(0.16, 0, 1, 0)
-		removeBtn.Position = UDim2.new(0.83, 0, 0, 0)
-		removeBtn.BackgroundTransparency = 1
-		removeBtn.TextColor3 = Color3.fromRGB(255, 120, 120)
-		removeBtn.Text = "X"
-		removeBtn.Font = Enum.Font.GothamBold
-		removeBtn.TextSize = 12
-		removeBtn.Parent = row
-
-		selectBtn.MouseButton1Click:Connect(function()
-			selectedTargets[name] = not selectedTargets[name] or nil
-			statusLabel.Text = (selectedTargets[name] and "Selected target: " or "Deselected: ") .. name
-			refreshWhitelistUI()
-		end)
-
-		removeBtn.MouseButton1Click:Connect(function()
-			selectedTargets[name] = nil
-			table.remove(whitelist, idx)
-			statusLabel.Text = "Removed: " .. name
-			refreshWhitelistUI()
-		end)
+local function syncDropdown()
+	if not targetDropdown then
+		return
 	end
-
-	whitelistScroll.CanvasSize = UDim2.new(0, 0, 0, math.max((#whitelist * 33) + 12, 112))
+	local optionsToShow = #whitelist > 0 and whitelist or {"None"}
+	local currentSelected = getSelectedList()
+	targetDropdown:Refresh(optionsToShow, #currentSelected > 0 and currentSelected or {optionsToShow[1]})
 end
 
 local function scanWorld()
 	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player then addNameUnique(p.Name, false) end
-	end
-	for _, obj in ipairs(workspace:GetDescendants()) do
-		if isValidTargetModel(obj) then addNameUnique(obj.Name, false) end
-	end
-	refreshWhitelistUI()
-	statusLabel.Text = "Found " .. tostring(#whitelist) .. " targets in map"
-end
-
-local function addTypedTarget()
-	local raw = string.gsub(targetInput.Text, "^%s*(.-)%s*$", "%1")
-	if raw == "" then
-		statusLabel.Text = "Enter a name before clicking + ADD"
-		return
-	end
-
-	local query = string.lower(raw)
-	local matched = raw
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player and (string.find(string.lower(p.Name), query, 1, true) or string.find(string.lower(p.DisplayName), query, 1, true)) then
-			matched = p.Name
-			break
+		if p ~= player then
+			addNameUnique(p.Name, false)
 		end
 	end
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if isValidTargetModel(obj) then
+			addNameUnique(obj.Name, false)
+		end
+	end
+	syncDropdown()
+	Luna:Notification({
+		Title = "Whitelist Scan",
+		Icon = "radar",
+		ImageSource = "Material",
+		Content = "Scanned map: " .. tostring(#whitelist) .. " valid targets available."
+	})
+end
 
-	if matched == raw then
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if isValidTargetModel(obj) and string.find(string.lower(obj.Name), query, 1, true) then
-				matched = obj.Name
-				break
+local function resolveTargetName(rawText)
+	local cleaned = string.gsub(rawText or "", "^%s*(.-)%s*$", "%1")
+	if cleaned == "" then
+		return nil
+	end
+	local query = string.lower(cleaned)
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			if string.find(string.lower(p.Name), query, 1, true)
+				or string.find(string.lower(p.DisplayName), query, 1, true) then
+				return p.Name
 			end
 		end
 	end
 
-	addNameUnique(matched, true)
-	targetInput.Text = ""
-	refreshWhitelistUI()
-	statusLabel.Text = "Added & selected: " .. matched
-end
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if isValidTargetModel(obj) and string.find(string.lower(obj.Name), query, 1, true) then
+			return obj.Name
+		end
+	end
 
-addButton.MouseButton1Click:Connect(addTypedTarget)
-scanButton.MouseButton1Click:Connect(scanWorld)
-targetInput.FocusLost:Connect(function(enter)
-	if enter then addTypedTarget() end
-end)
+	return cleaned
+end
 
 local function findCharacterByName(targetName)
 	local p = Players:FindFirstChild(targetName)
-	if p and p.Character then return p.Character end
+	if p and p.Character then
+		return p.Character
+	end
 	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj.Name == targetName and isValidTargetModel(obj) then return obj end
+		if obj.Name == targetName and isValidTargetModel(obj) then
+			return obj
+		end
 	end
 	return nil
 end
@@ -307,11 +191,6 @@ local function pickActiveTarget(myHRP)
 	return bestChar
 end
 
--- 4. FOLLOW BEHIND LOOP
-local isFollowing = false
-local followConn = nil
-local currentTarget = nil
-
 local function stopFollowing()
 	isFollowing = false
 	currentTarget = nil
@@ -319,29 +198,43 @@ local function stopFollowing()
 		followConn:Disconnect()
 		followConn = nil
 	end
-	statusLabel.Text = "Stopped following"
-	actionButton.Text = "FOLLOW BEHIND (F)"
-	actionButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+	if followToggle then
+		followToggle:Set(false)
+	end
 end
 
 local function startFollowing()
 	local myChar, myHRP, myHum = getMyParts()
 	if not (myChar and myHRP and myHum and myHum.Health > 0) then
-		statusLabel.Text = "Your character is not ready!"
+		Luna:Notification({
+			Title = "Follow Behind",
+			Icon = "error_outline",
+			ImageSource = "Material",
+			Content = "Your character is not ready yet."
+		})
+		stopFollowing()
 		return
 	end
 
 	local targetChar = pickActiveTarget(myHRP)
 	if not targetChar then
-		statusLabel.Text = "Select a target in Whitelist first!"
+		Luna:Notification({
+			Title = "Whitelist Required",
+			Icon = "warning",
+			ImageSource = "Material",
+			Content = "Select at least one valid target in Whitelist first."
+		})
+		stopFollowing()
 		return
 	end
 
 	isFollowing = true
 	currentTarget = targetChar
-	statusLabel.Text = "Following: " .. targetChar.Name
-	actionButton.Text = "STOP FOLLOWING (F)"
-	actionButton.BackgroundColor3 = Color3.fromRGB(40, 175, 95)
+
+	if followConn then
+		followConn:Disconnect()
+		followConn = nil
+	end
 
 	followConn = RunService.Heartbeat:Connect(function()
 		if not isFollowing then
@@ -362,12 +255,16 @@ local function startFollowing()
 			local nextTarget = pickActiveTarget(curMyHRP)
 			if nextTarget then
 				currentTarget = nextTarget
-				statusLabel.Text = "Switched to: " .. nextTarget.Name
 				tHRP = nextTarget:FindFirstChild("HumanoidRootPart")
 				tHum = nextTarget:FindFirstChildOfClass("Humanoid")
 			else
 				stopFollowing()
-				statusLabel.Text = "Target defeated / no valid target left"
+				Luna:Notification({
+					Title = "Follow Behind",
+					Icon = "info",
+					ImageSource = "Material",
+					Content = "No active whitelisted targets remaining."
+				})
 				return
 			end
 		end
@@ -379,14 +276,65 @@ local function startFollowing()
 	end)
 end
 
-actionButton.MouseButton1Click:Connect(function()
-	if isFollowing then stopFollowing() else startFollowing() end
-end)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if not gameProcessed and input.KeyCode == Enum.KeyCode.F then
-		if isFollowing then stopFollowing() else startFollowing() end
+local function toggleFollowState(desiredState)
+	if desiredState == nil then
+		desiredState = not isFollowing
 	end
-end)
 
-task.defer(scanWorld)
+	if desiredState then
+		if not isFollowing then
+			startFollowing()
+		end
+	else
+		if isFollowing then
+			stopFollowing()
+		end
+	end
+end
+
+-- MAIN TAB CONTROLS
+MainTab:CreateSection("Follow Controls - Credit: hedgehog")
+
+followToggle = MainTab:CreateToggle({
+	Name = "Follow Behind Target",
+	Description = "Lock position behind selected whitelisted target without auto-attacking.",
+	CurrentValue = false,
+	Callback = function(Value)
+		toggleFollowState(Value)
+	end
+}, "FollowBehindToggle")
+
+MainTab:CreateBind({
+	Name = "Toggle Follow Keybind",
+	Description = "Press key (default F) to toggle following behind target.",
+	CurrentBind = "F",
+	HoldToInteract = false,
+	Callback = function(BindState)
+		if BindState then
+			toggleFollowState(not isFollowing)
+		end
+	end
+}, "FollowBehindBind")
+
+MainTab:CreateSlider({
+	Name = "Distance Behind",
+	Description = "Offset distance behind target HumanoidRootPart.",
+	Range = {1, 15},
+	Increment = 0.5,
+	CurrentValue = DISTANCE_BEHIND,
+	Callback = function(Value)
+		DISTANCE_BEHIND = Value
+	end
+}, "DistanceBehindSlider")
+
+MainTab:CreateLabel({
+	Text = "Credit: hedgehog | No auto-attack or skill execution enabled.",
+	Style = 2
+})
+
+-- WHITELIST TAB CONTROLS
+WhitelistTab:CreateSection("Whitelist Management")
+
+local pendingName = ""
+
+WhitelistTab:CreateInput({
