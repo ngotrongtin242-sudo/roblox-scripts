@@ -1,4 +1,4 @@
--- Credit: hedgehog
+-- Credit: hedgehog CUTIE
 -- File: follow_behind.lua
 
 local Players = game:GetService("Players")
@@ -10,7 +10,7 @@ local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-S
 
 local Window = Luna:CreateWindow({
 	Name = "Follow Behind - hedgehog",
-	Subtitle = "Single Target & Evade Damage",
+	Subtitle = "Single Username Lock",
 	LogoID = "82795327169782",
 	LoadingEnabled = true,
 	LoadingTitle = "Luna Interface Suite",
@@ -53,25 +53,13 @@ local WhitelistTab = Window:CreateTab({
 
 -- STATE (SINGLE TARGET ONLY)
 local DISTANCE_BEHIND = 3.5
-local DODGE_ENABLED = true
-local DODGE_BACK_DISTANCE = 14
-local DODGE_SIDE_OFFSET = 6
-local DODGE_UP_OFFSET = 2
-local DODGE_HOLD_DURATION = 0.85
-
 local isFollowing = false
 local isUpdatingToggle = false
 local isUpdatingDropdown = false
 local followConn = nil
 
-local isEvadingDamage = false
-local evadeUntil = 0
-local lastTargetHealth = nil
-local lastHealthChangeClock = 0
-local cachedSafeCFrame = nil
-
 local usernameList = {}
-local singleSelectedTarget = nil
+local singleSelectedTarget = nil -- Only ONE target username at a time
 
 local followToggle = nil
 local targetDropdown = nil
@@ -129,10 +117,7 @@ end
 
 local function refreshStatusUI()
 	if activeTargetLabel then
-		local statusTag = isEvadingDamage and " [EVADING SKILL]" or ""
-		local currentText = singleSelectedTarget
-			and ("Locked Target (1 Player): " .. singleSelectedTarget .. statusTag)
-			or "Locked Target (1 Player): None"
+		local currentText = singleSelectedTarget and ("Locked Target (1 Player): " .. singleSelectedTarget) or "Locked Target (1 Player): None"
 		pcall(function()
 			activeTargetLabel:Set(currentText)
 		end)
@@ -170,9 +155,6 @@ local function selectSingleUsername(uName, notify)
 
 	addUsername(uName, true)
 	singleSelectedTarget = uName
-	lastTargetHealth = nil
-	isEvadingDamage = false
-	cachedSafeCFrame = nil
 	syncSingleDropdown()
 
 	if notify then
@@ -186,6 +168,7 @@ local function selectSingleUsername(uName, notify)
 end
 
 local function rebuildPlayerQuickButtons()
+	-- Remove previous quick buttons if any
 	for uName, btn in pairs(playerButtons) do
 		if btn and btn.Destroy then
 			pcall(function()
@@ -195,6 +178,7 @@ local function rebuildPlayerQuickButtons()
 		playerButtons[uName] = nil
 	end
 
+	-- Create one button per player Username in server (excluding self)
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and typeof(p.Name) == "string" and p.Name ~= "" then
 			addUsername(p.Name, false)
@@ -211,6 +195,7 @@ local function rebuildPlayerQuickButtons()
 		end
 	end
 
+	-- Keep singleSelectedTarget only if still present or manually added
 	if singleSelectedTarget and not table.find(usernameList, singleSelectedTarget) then
 		table.insert(usernameList, singleSelectedTarget)
 	end
@@ -225,18 +210,21 @@ local function resolvePlayerUsername(rawText)
 	end
 	local query = string.lower(cleaned)
 
+	-- Exact Username match first
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and string.lower(p.Name) == query then
 			return p.Name
 		end
 	end
 
+	-- Partial Username match
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and string.find(string.lower(p.Name), query, 1, true) then
 			return p.Name
 		end
 	end
 
+	-- DisplayName match -> resolves to real Username
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and string.find(string.lower(p.DisplayName), query, 1, true) then
 			return p.Name
@@ -270,76 +258,6 @@ local function getSingleTargetCharacter()
 	return nil
 end
 
--- Detects whether target character is currently using a damage skill / combat action
-local function isTargetUsingDamageSkill(targetChar, targetHum, targetHRP)
-	if not DODGE_ENABLED then
-		return false
-	end
-
-	local now = os.clock()
-	local hp = targetHum.Health
-
-	if lastTargetHealth == nil then
-		lastTargetHealth = hp
-	elseif hp < lastTargetHealth then
-		lastTargetHealth = hp
-		lastHealthChangeClock = now
-	elseif hp > lastTargetHealth then
-		lastTargetHealth = hp
-	end
-
-	-- 1. Health changed/dropped recently (active combat/damage window)
-	if (now - lastHealthChangeClock) <= 0.65 then
-		return true
-	end
-
-	-- 2. Equipped Tool or active attacking animation track
-	local equippedTool = targetChar:FindFirstChildOfClass("Tool")
-	if equippedTool then
-		local animController = targetHum:FindFirstChildOfClass("Animator")
-		if animController then
-			for _, track in ipairs(animController:GetPlayingAnimationTracks()) do
-				local animName = string.lower(track.Name or "")
-				if string.find(animName, "attack", 1, true)
-					or string.find(animName, "slash", 1, true)
-					or string.find(animName, "punch", 1, true)
-					or string.find(animName, "skill", 1, true)
-					or string.find(animName, "hit", 1, true)
-					or string.find(animName, "cast", 1, true)
-					or string.find(animName, "combo", 1, true) then
-					return true
-				end
-			end
-		end
-	end
-
-	-- 3. Active skill/combat instances attached to target character or HRP
-	for _, child in ipairs(targetChar:GetChildren()) do
-		if child:IsA("BodyVelocity")
-			or child:IsA("LinearVelocity")
-			or child:IsA("VectorForce")
-			or child:IsA("BodyGyro")
-			or child:IsA("Highlight") then
-			return true
-		end
-	end
-
-	for _, child in ipairs(targetHRP:GetChildren()) do
-		if child:IsA("BodyVelocity")
-			or child:IsA("LinearVelocity")
-			or child:IsA("VectorForce") then
-			return true
-		end
-	end
-
-	return false
-end
-
-local function computeEvadeCFrame(targetHRP)
-	local offset = CFrame.new(DODGE_SIDE_OFFSET, DODGE_UP_OFFSET, DODGE_BACK_DISTANCE)
-	return targetHRP.CFrame * offset
-end
-
 local function setToggleSilently(state)
 	if followToggle and not isUpdatingToggle then
 		isUpdatingToggle = true
@@ -352,10 +270,6 @@ end
 
 local function stopFollowing(syncUI)
 	isFollowing = false
-	isEvadingDamage = false
-	evadeUntil = 0
-	lastTargetHealth = nil
-	cachedSafeCFrame = nil
 	if followConn then
 		followConn:Disconnect()
 		followConn = nil
@@ -363,7 +277,6 @@ local function stopFollowing(syncUI)
 	if syncUI then
 		setToggleSilently(false)
 	end
-	refreshStatusUI()
 end
 
 local function startFollowing()
@@ -407,10 +320,9 @@ local function startFollowing()
 
 	stopFollowing(false)
 	isFollowing = true
-	lastTargetHealth = targetHum.Health
 	setToggleSilently(true)
 
-	-- Strictly locks onto ONLY the single selected Username; evades when using damage skill, returns behind after
+	-- Strictly locks onto ONLY the single selected Username (no switching to other players)
 	followConn = RunService.Heartbeat:Connect(function()
 		if not isFollowing then
 			return
@@ -438,28 +350,8 @@ local function startFollowing()
 				return
 			end
 
-			local now = os.clock()
-			local skillActiveNow = isTargetUsingDamageSkill(lockedChar, tHum, tHRP)
-
-			if skillActiveNow then
-				evadeUntil = now + DODGE_HOLD_DURATION
-				if not isEvadingDamage then
-					isEvadingDamage = true
-					cachedSafeCFrame = computeEvadeCFrame(tHRP)
-					refreshStatusUI()
-				end
-			elseif isEvadingDamage and now >= evadeUntil then
-				isEvadingDamage = false
-				cachedSafeCFrame = nil
-				refreshStatusUI()
-			end
-
 			curMyHRP.AssemblyLinearVelocity = Vector3.zero
-			if isEvadingDamage then
-				curMyHRP.CFrame = cachedSafeCFrame or computeEvadeCFrame(tHRP)
-			else
-				curMyHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, DISTANCE_BEHIND)
-			end
+			curMyHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, DISTANCE_BEHIND)
 		end)
 
 		if not ok then
@@ -520,44 +412,6 @@ MainTab:CreateSlider({
 		DISTANCE_BEHIND = Value
 	end
 }, "DistanceBehindSlider")
-
-MainTab:CreateSection("Evade Damage Skill")
-
-MainTab:CreateToggle({
-	Name = "Move Away On Damage Skill",
-	Description = "Temporarily relocate to a safe spot while target uses a damage skill, then return behind.",
-	CurrentValue = DODGE_ENABLED,
-	Callback = function(Value)
-		DODGE_ENABLED = Value
-		if not DODGE_ENABLED then
-			isEvadingDamage = false
-			cachedSafeCFrame = nil
-			refreshStatusUI()
-		end
-	end
-}, "MoveAwayOnDamageSkillToggle")
-
-MainTab:CreateSlider({
-	Name = "Evade Back Distance",
-	Description = "How far back to move when evading a damage skill.",
-	Range = {6, 35},
-	Increment = 1,
-	CurrentValue = DODGE_BACK_DISTANCE,
-	Callback = function(Value)
-		DODGE_BACK_DISTANCE = Value
-	end
-}, "EvadeBackDistanceSlider")
-
-MainTab:CreateSlider({
-	Name = "Evade Hold Duration (s)",
-	Description = "Time to stay at the safe spot after damage skill stops.",
-	Range = {0.2, 2.5},
-	Increment = 0.05,
-	CurrentValue = DODGE_HOLD_DURATION,
-	Callback = function(Value)
-		DODGE_HOLD_DURATION = Value
-	end
-}, "EvadeHoldDurationSlider")
 
 MainTab:CreateLabel({
 	Text = "Credit: hedgehog | Single player lock | No auto-attack or skills.",
@@ -692,6 +546,7 @@ end)
 
 task.defer(function()
 	rebuildPlayerQuickButtons()
+	-- If there is exactly 1 other player in server, pre-lock that single player's Username
 	if #usernameList == 1 and not singleSelectedTarget then
 		selectSingleUsername(usernameList[1], false)
 	end
