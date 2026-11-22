@@ -338,3 +338,113 @@ WhitelistTab:CreateSection("Whitelist Management")
 local pendingName = ""
 
 WhitelistTab:CreateInput({
+	Name = "Target Name",
+	Description = "Enter player or NPC name (partial match supported).",
+	PlaceholderText = "Type name...",
+	CurrentValue = "",
+	Numeric = false,
+	MaxCharacters = nil,
+	Enter = true,
+	Callback = function(Text)
+		pendingName = Text
+		local resolved = resolveTargetName(Text)
+		if resolved and addNameUnique(resolved, true) then
+			syncDropdown()
+			Luna:Notification({
+				Title = "Whitelist Updated",
+				Icon = "check_circle",
+				ImageSource = "Material",
+				Content = "Added and selected: " .. resolved
+			})
+		end
+	end
+}, "WhitelistInput")
+
+WhitelistTab:CreateButton({
+	Name = "Add Typed Target",
+	Description = "Add current input name to Whitelist and select it.",
+	Callback = function()
+		local resolved = resolveTargetName(pendingName)
+		if not resolved then
+			Luna:Notification({
+				Title = "Whitelist",
+				Icon = "warning",
+				ImageSource = "Material",
+				Content = "Please enter a target name first."
+			})
+			return
+		end
+		if addNameUnique(resolved, true) then
+			syncDropdown()
+			Luna:Notification({
+				Title = "Whitelist Updated",
+				Icon = "check_circle",
+				ImageSource = "Material",
+				Content = "Added and selected: " .. resolved
+			})
+		end
+	end
+})
+
+WhitelistTab:CreateButton({
+	Name = "Scan Players & NPCs",
+	Description = "Scan current map for valid characters and add them to Whitelist.",
+	Callback = function()
+		scanWorld()
+	end
+})
+
+targetDropdown = WhitelistTab:CreateDropdown({
+	Name = "Active Whitelisted Targets",
+	Description = "Select one or multiple targets from Whitelist.",
+	Options = {"None"},
+	CurrentOption = {"None"},
+	MultipleOptions = true,
+	SpecialType = nil,
+	Callback = function(Options)
+		selectedTargets = {}
+		if typeof(Options) == "table" then
+			for _, item in ipairs(Options) do
+				if item ~= "None" then
+					selectedTargets[item] = true
+				end
+			end
+		elseif typeof(Options) == "string" and Options ~= "None" then
+			selectedTargets[Options] = true
+		end
+	end
+}, "WhitelistDropdown")
+
+WhitelistTab:CreateButton({
+	Name = "Clear Whitelist",
+	Description = "Remove all entries and selections from Whitelist.",
+	Callback = function()
+		table.clear(whitelist)
+		table.clear(selectedTargets)
+		syncDropdown()
+		Luna:Notification({
+			Title = "Whitelist Cleared",
+			Icon = "delete_sweep",
+			ImageSource = "Material",
+			Content = "All whitelisted targets have been cleared."
+		})
+	end
+})
+
+local ThemeTab = Window:CreateTab({
+	Name = "Theme",
+	Icon = "palette",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+ThemeTab:BuildThemeSection()
+
+local ConfigTab = Window:CreateTab({
+	Name = "Config",
+	Icon = "settings",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+ConfigTab:BuildConfigSection()
+
+task.defer(scanWorld)
