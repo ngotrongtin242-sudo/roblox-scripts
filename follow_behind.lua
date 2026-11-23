@@ -1,16 +1,21 @@
--- Credit: hedgehog CUTIE
--- File: follow_behind.lua
+-- Credit: hedgehog
+-- Repository: https://github.com/ngotrongtin242-sudo/roblox-scripts/blob/main/follow_behind.lua
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local DISCORD_INVITE = "https://discord.gg/v3RG6hZFA"
 
 local Luna = loadstring(game:HttpGet("https://raw.githubusercontent.com/Nebula-Softworks/Luna-Interface-Suite/refs/heads/master/source.lua", true))()
+if not Luna then
+	warn("[hedgehog] Luna Interface Suite failed to load.")
+	return
+end
 
 local Window = Luna:CreateWindow({
 	Name = "Follow Behind - hedgehog",
-	Subtitle = "Single Username Lock",
+	Subtitle = "Single Target & Outline ESP",
 	LogoID = "82795327169782",
 	LoadingEnabled = true,
 	LoadingTitle = "Luna Interface Suite",
@@ -18,21 +23,21 @@ local Window = Luna:CreateWindow({
 
 	ConfigSettings = {
 		RootFolder = nil,
-		ConfigFolder = "HedgehogFollowHub"
+		ConfigFolder = "HedgehogFollowV3"
 	},
 
 	KeySystem = true,
 	KeySettings = {
 		Title = "Hedgehog Key System",
-		Subtitle = "License Verification",
-		Note = "Enter a valid key to unlock Follow Behind (hedgehog). Default keys: HEDGEHOG-KEY or 1234.",
+		Subtitle = "Get Key",
+		Note = "Get your key at: https://discord.gg/v3RG6hZFA (Keys: HEDGEHOG-KEY, 1234)",
 		SaveInRoot = false,
 		SaveKey = true,
 		Key = {"HEDGEHOG-KEY", "1234"},
 		SecondAction = {
 			Enabled = true,
 			Type = "Link",
-			Parameter = "https://github.com/ngotrongtin242-sudo/roblox-scripts"
+			Parameter = DISCORD_INVITE
 		}
 	}
 })
@@ -44,6 +49,13 @@ local MainTab = Window:CreateTab({
 	ShowTitle = true
 })
 
+local ESPTab = Window:CreateTab({
+	Name = "ESP",
+	Icon = "visibility",
+	ImageSource = "Material",
+	ShowTitle = true
+})
+
 local WhitelistTab = Window:CreateTab({
 	Name = "Whitelist",
 	Icon = "person_pin",
@@ -51,15 +63,22 @@ local WhitelistTab = Window:CreateTab({
 	ShowTitle = true
 })
 
--- STATE (SINGLE TARGET ONLY)
+-- STATE
 local DISTANCE_BEHIND = 3.5
 local isFollowing = false
-local isUpdatingToggle = false
-local isUpdatingDropdown = false
+local isSyncingToggle = false
+local isSyncingDropdown = false
 local followConn = nil
 
+local ESP_ENABLED = false
+local ESP_ONLY_TARGET = false
+local ESP_TARGET_COLOR = Color3.fromRGB(255, 65, 65)
+local ESP_ALL_COLOR = Color3.fromRGB(86, 171, 128)
+local espHighlights = {}
+
 local usernameList = {}
-local singleSelectedTarget = nil -- Only ONE target username at a time
+local singleSelectedTarget = nil
+local typedUsername = ""
 
 local followToggle = nil
 local targetDropdown = nil
@@ -82,6 +101,58 @@ local function isValidCharacterModel(model)
 		and model:FindFirstChild("HumanoidRootPart") ~= nil
 end
 
+-- OUTLINE ESP
+local function removePlayerESP(targetPlayer)
+	local hl = espHighlights[targetPlayer]
+	if hl then
+		pcall(function()
+			hl:Destroy()
+		end)
+		espHighlights[targetPlayer] = nil
+	end
+end
+
+local function clearAllESP()
+	for p, _ in pairs(espHighlights) do
+		removePlayerESP(p)
+	end
+end
+
+local function updateAllESP()
+	if not ESP_ENABLED then
+		clearAllESP()
+		return
+	end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player then
+			local isTarget = (singleSelectedTarget ~= nil and p.Name == singleSelectedTarget)
+			local shouldShow = (not ESP_ONLY_TARGET) or isTarget
+			local char = p.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+			if shouldShow and char and hum and hum.Health > 0 then
+				local hl = espHighlights[p]
+				if not hl or hl.Parent ~= char then
+					removePlayerESP(p)
+					hl = Instance.new("Highlight")
+					hl.Name = "Hedgehog_Outline_ESP"
+					hl.Adornee = char
+					hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+					hl.FillTransparency = 1
+					hl.OutlineTransparency = 0
+					hl.Parent = char
+					espHighlights[p] = hl
+				end
+				hl.OutlineColor = isTarget and ESP_TARGET_COLOR or ESP_ALL_COLOR
+			else
+				removePlayerESP(p)
+			end
+		end
+	end
+end
+
+-- SINGLE TARGET MANAGEMENT
 local function addUsername(rawName, setAsSingleTarget)
 	if typeof(rawName) ~= "string" then
 		return false
@@ -90,11 +161,9 @@ local function addUsername(rawName, setAsSingleTarget)
 	if trimmed == "" or trimmed == player.Name or trimmed == "None" then
 		return false
 	end
-
 	if not table.find(usernameList, trimmed) then
 		table.insert(usernameList, trimmed)
 	end
-
 	if setAsSingleTarget then
 		singleSelectedTarget = trimmed
 	end
@@ -103,23 +172,22 @@ end
 
 local function updatePlayerButtonLabels()
 	for uName, btn in pairs(playerButtons) do
-		if btn then
+		if btn and btn.Set then
 			pcall(function()
-				if singleSelectedTarget == uName then
-					btn:Set("[SELECTED] " .. uName)
-				else
-					btn:Set("Select Player: " .. uName)
-				end
+				btn:Set((singleSelectedTarget == uName) and ("[SELECTED] " .. uName) or ("Select Player: " .. uName))
 			end)
 		end
 	end
 end
 
 local function refreshStatusUI()
-	if activeTargetLabel then
-		local currentText = singleSelectedTarget and ("Locked Target (1 Player): " .. singleSelectedTarget) or "Locked Target (1 Player): None"
+	if activeTargetLabel and activeTargetLabel.Set then
+		local statusTag = isFollowing and " [FOLLOWING BEHIND]" or ""
+		local text = singleSelectedTarget
+			and ("Locked Target (1 Player): " .. singleSelectedTarget .. statusTag)
+			or "Locked Target (1 Player): None"
 		pcall(function()
-			activeTargetLabel:Set(currentText)
+			activeTargetLabel:Set(text)
 		end)
 	end
 	updatePlayerButtonLabels()
@@ -127,7 +195,7 @@ end
 
 local function syncSingleDropdown()
 	refreshStatusUI()
-	if not targetDropdown then
+	if not targetDropdown or not targetDropdown.Refresh then
 		return
 	end
 
@@ -139,36 +207,36 @@ local function syncSingleDropdown()
 		table.insert(options, "None")
 	end
 
-	local selectedOption = (singleSelectedTarget and table.find(options, singleSelectedTarget)) and {singleSelectedTarget} or {options[1]}
+	local chosen = (singleSelectedTarget and table.find(options, singleSelectedTarget)) and {singleSelectedTarget} or {options[1]}
 
-	isUpdatingDropdown = true
+	isSyncingDropdown = true
 	pcall(function()
-		targetDropdown:Refresh(options, selectedOption)
+		targetDropdown:Refresh(options, chosen)
 	end)
-	isUpdatingDropdown = false
+	isSyncingDropdown = false
 end
 
 local function selectSingleUsername(uName, notify)
 	if typeof(uName) ~= "string" or uName == "" or uName == "None" or uName == player.Name then
 		return
 	end
-
 	addUsername(uName, true)
 	singleSelectedTarget = uName
 	syncSingleDropdown()
 
 	if notify then
-		Luna:Notification({
-			Title = "Single Target Locked",
-			Icon = "person",
-			ImageSource = "Material",
-			Content = "Now targeting ONLY player: " .. singleSelectedTarget
-		})
+		pcall(function()
+			Luna:Notification({
+				Title = "Single Target Locked",
+				Icon = "person",
+				ImageSource = "Material",
+				Content = "Now targeting ONLY player: " .. singleSelectedTarget
+			})
+		end)
 	end
 end
 
 local function rebuildPlayerQuickButtons()
-	-- Remove previous quick buttons if any
 	for uName, btn in pairs(playerButtons) do
 		if btn and btn.Destroy then
 			pcall(function()
@@ -178,15 +246,12 @@ local function rebuildPlayerQuickButtons()
 		playerButtons[uName] = nil
 	end
 
-	-- Create one button per player Username in server (excluding self)
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and typeof(p.Name) == "string" and p.Name ~= "" then
 			addUsername(p.Name, false)
 			local uName = p.Name
-			local labelText = (singleSelectedTarget == uName) and ("[SELECTED] " .. uName) or ("Select Player: " .. uName)
-
 			playerButtons[uName] = WhitelistTab:CreateButton({
-				Name = labelText,
+				Name = (singleSelectedTarget == uName) and ("[SELECTED] " .. uName) or ("Select Player: " .. uName),
 				Description = "Target ONLY " .. uName .. " (DisplayName: " .. p.DisplayName .. ")",
 				Callback = function()
 					selectSingleUsername(uName, true)
@@ -195,7 +260,6 @@ local function rebuildPlayerQuickButtons()
 		end
 	end
 
-	-- Keep singleSelectedTarget only if still present or manually added
 	if singleSelectedTarget and not table.find(usernameList, singleSelectedTarget) then
 		table.insert(usernameList, singleSelectedTarget)
 	end
@@ -210,27 +274,21 @@ local function resolvePlayerUsername(rawText)
 	end
 	local query = string.lower(cleaned)
 
-	-- Exact Username match first
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and string.lower(p.Name) == query then
 			return p.Name
 		end
 	end
-
-	-- Partial Username match
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and string.find(string.lower(p.Name), query, 1, true) then
 			return p.Name
 		end
 	end
-
-	-- DisplayName match -> resolves to real Username
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= player and string.find(string.lower(p.DisplayName), query, 1, true) then
 			return p.Name
 		end
 	end
-
 	return cleaned
 end
 
@@ -238,33 +296,29 @@ local function getSingleTargetCharacter()
 	if not singleSelectedTarget or singleSelectedTarget == "" or singleSelectedTarget == "None" then
 		return nil
 	end
-
-	local targetPlayer = Players:FindFirstChild(singleSelectedTarget)
-	if targetPlayer and targetPlayer.Character then
-		return targetPlayer.Character
+	local p = Players:FindFirstChild(singleSelectedTarget)
+	if p and p.Character then
+		return p.Character
 	end
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p.Name == singleSelectedTarget and p.Character then
-			return p.Character
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other.Name == singleSelectedTarget and other.Character then
+			return other.Character
 		end
 	end
-
-	local workspaceModel = workspace:FindFirstChild(singleSelectedTarget)
-	if isValidCharacterModel(workspaceModel) then
-		return workspaceModel
+	local wsModel = workspace:FindFirstChild(singleSelectedTarget)
+	if isValidCharacterModel(wsModel) then
+		return wsModel
 	end
-
 	return nil
 end
 
 local function setToggleSilently(state)
-	if followToggle and not isUpdatingToggle then
-		isUpdatingToggle = true
+	if followToggle and followToggle.Set and not isSyncingToggle then
+		isSyncingToggle = true
 		pcall(function()
 			followToggle:Set(state)
 		end)
-		isUpdatingToggle = false
+		isSyncingToggle = false
 	end
 end
 
@@ -277,28 +331,16 @@ local function stopFollowing(syncUI)
 	if syncUI then
 		setToggleSilently(false)
 	end
+	refreshStatusUI()
 end
 
 local function startFollowing()
 	local myChar, myHRP, myHum = getMyParts()
 	if not (myChar and myHRP and myHum and myHum.Health > 0) then
-		Luna:Notification({
-			Title = "Follow Behind",
-			Icon = "error_outline",
-			ImageSource = "Material",
-			Content = "Your character is not ready yet."
-		})
 		stopFollowing(true)
 		return
 	end
-
 	if not singleSelectedTarget then
-		Luna:Notification({
-			Title = "No Player Selected",
-			Icon = "warning",
-			ImageSource = "Material",
-			Content = "Select 1 player Username first before activating."
-		})
 		stopFollowing(true)
 		return
 	end
@@ -306,14 +348,7 @@ local function startFollowing()
 	local targetChar = getSingleTargetCharacter()
 	local targetHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
 	local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
-
 	if not (targetChar and targetHRP and targetHRP.Parent and targetHum and targetHum.Health > 0) then
-		Luna:Notification({
-			Title = "Target Unavailable",
-			Icon = "info",
-			ImageSource = "Material",
-			Content = "Player '" .. tostring(singleSelectedTarget) .. "' is not spawned or active right now."
-		})
 		stopFollowing(true)
 		return
 	end
@@ -321,53 +356,46 @@ local function startFollowing()
 	stopFollowing(false)
 	isFollowing = true
 	setToggleSilently(true)
+	refreshStatusUI()
 
-	-- Strictly locks onto ONLY the single selected Username (no switching to other players)
 	followConn = RunService.Heartbeat:Connect(function()
 		if not isFollowing then
 			return
 		end
-
-		local ok = pcall(function()
-			local _, curMyHRP, curMyHum = getMyParts()
-			if not (curMyHRP and curMyHRP.Parent and curMyHum and curMyHum.Health > 0) then
-				stopFollowing(true)
-				return
-			end
-
-			local lockedChar = getSingleTargetCharacter()
-			local tHRP = lockedChar and lockedChar:FindFirstChild("HumanoidRootPart")
-			local tHum = lockedChar and lockedChar:FindFirstChildOfClass("Humanoid")
-
-			if not (lockedChar and lockedChar.Parent and tHRP and tHRP.Parent and tHum and tHum.Health > 0) then
-				stopFollowing(true)
-				Luna:Notification({
-					Title = "Target Lost",
-					Icon = "info",
-					ImageSource = "Material",
-					Content = "Stopped following '" .. tostring(singleSelectedTarget) .. "' (left or defeated)."
-				})
-				return
-			end
-
-			curMyHRP.AssemblyLinearVelocity = Vector3.zero
-			curMyHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, DISTANCE_BEHIND)
-		end)
-
-		if not ok then
+		local _, curMyHRP, curMyHum = getMyParts()
+		if not (curMyHRP and curMyHRP.Parent and curMyHum and curMyHum.Health > 0) then
 			stopFollowing(true)
+			return
 		end
+
+		local lockedChar = getSingleTargetCharacter()
+		local tHRP = lockedChar and lockedChar:FindFirstChild("HumanoidRootPart")
+		local tHum = lockedChar and lockedChar:FindFirstChildOfClass("Humanoid")
+		if not (lockedChar and lockedChar.Parent and tHRP and tHRP.Parent and tHum and tHum.Health > 0) then
+			stopFollowing(true)
+			return
+		end
+
+		if curMyHum.Sit then
+			curMyHum.Sit = false
+		end
+		if curMyHum.PlatformStand then
+			curMyHum.PlatformStand = false
+		end
+
+		curMyHRP.AssemblyLinearVelocity = Vector3.zero
+		curMyHRP.AssemblyAngularVelocity = Vector3.zero
+		curMyHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, DISTANCE_BEHIND)
 	end)
 end
 
 local function toggleFollowState(desiredState)
-	if isUpdatingToggle then
+	if isSyncingToggle then
 		return
 	end
 	if desiredState == nil then
 		desiredState = not isFollowing
 	end
-
 	if desiredState then
 		startFollowing()
 	else
@@ -383,12 +411,12 @@ followToggle = MainTab:CreateToggle({
 	Description = "Follow strictly behind the single selected player Username without auto-attacking.",
 	CurrentValue = false,
 	Callback = function(Value)
-		if isUpdatingToggle then
+		if isSyncingToggle then
 			return
 		end
 		toggleFollowState(Value)
 	end
-}, "FollowBehindToggle")
+})
 
 MainTab:CreateBind({
 	Name = "Toggle Follow Keybind",
@@ -400,7 +428,7 @@ MainTab:CreateBind({
 			toggleFollowState(not isFollowing)
 		end
 	end
-}, "FollowBehindBind")
+})
 
 MainTab:CreateSlider({
 	Name = "Distance Behind",
@@ -411,11 +439,51 @@ MainTab:CreateSlider({
 	Callback = function(Value)
 		DISTANCE_BEHIND = Value
 	end
-}, "DistanceBehindSlider")
+})
 
 MainTab:CreateLabel({
 	Text = "Credit: hedgehog | Single player lock | No auto-attack or skills.",
 	Style = 2
+})
+
+-- ESP TAB (OUTLINE ONLY)
+ESPTab:CreateSection("Outline ESP Controls")
+
+ESPTab:CreateToggle({
+	Name = "Enable Outline ESP",
+	Description = "Show character outline border only through walls.",
+	CurrentValue = ESP_ENABLED,
+	Callback = function(Value)
+		ESP_ENABLED = Value
+		if not ESP_ENABLED then
+			clearAllESP()
+		end
+	end
+})
+
+ESPTab:CreateToggle({
+	Name = "Outline Locked Target Only",
+	Description = "Show outline border only on the single selected target Username.",
+	CurrentValue = ESP_ONLY_TARGET,
+	Callback = function(Value)
+		ESP_ONLY_TARGET = Value
+	end
+})
+
+ESPTab:CreateColorPicker({
+	Name = "Locked Target Outline Color",
+	Color = ESP_TARGET_COLOR,
+	Callback = function(Value)
+		ESP_TARGET_COLOR = Value
+	end
+})
+
+ESPTab:CreateColorPicker({
+	Name = "Other Players Outline Color",
+	Color = ESP_ALL_COLOR,
+	Callback = function(Value)
+		ESP_ALL_COLOR = Value
+	end
 })
 
 -- WHITELIST / SINGLE PLAYER SELECT TAB
@@ -425,8 +493,6 @@ activeTargetLabel = WhitelistTab:CreateLabel({
 	Text = "Locked Target (1 Player): None",
 	Style = 2
 })
-
-local typedUsername = ""
 
 WhitelistTab:CreateInput({
 	Name = "Enter Player Username",
@@ -439,23 +505,16 @@ WhitelistTab:CreateInput({
 	Callback = function(Text)
 		typedUsername = Text
 	end
-}, "SingleUsernameInput")
+})
 
 WhitelistTab:CreateButton({
 	Name = "Lock Typed Username (Single)",
 	Description = "Set ONLY this typed Username as the active target.",
 	Callback = function()
 		local resolved = resolvePlayerUsername(typedUsername)
-		if not resolved then
-			Luna:Notification({
-				Title = "Username Required",
-				Icon = "warning",
-				ImageSource = "Material",
-				Content = "Enter a player Username first."
-			})
-			return
+		if resolved then
+			selectSingleUsername(resolved, true)
 		end
-		selectSingleUsername(resolved, true)
 	end
 })
 
@@ -467,7 +526,7 @@ targetDropdown = WhitelistTab:CreateDropdown({
 	MultipleOptions = false,
 	SpecialType = nil,
 	Callback = function(Selected)
-		if isUpdatingDropdown then
+		if isSyncingDropdown then
 			return
 		end
 		local chosenName = typeof(Selected) == "table" and Selected[1] or Selected
@@ -475,19 +534,13 @@ targetDropdown = WhitelistTab:CreateDropdown({
 			selectSingleUsername(chosenName, true)
 		end
 	end
-}, "SingleUsernameDropdown")
+})
 
 WhitelistTab:CreateButton({
 	Name = "Reload Server Player Usernames",
 	Description = "Refresh current player Usernames in the server.",
 	Callback = function()
 		rebuildPlayerQuickButtons()
-		Luna:Notification({
-			Title = "Usernames Refreshed",
-			Icon = "refresh",
-			ImageSource = "Material",
-			Content = "Updated player Usernames: " .. tostring(#usernameList)
-		})
 	end
 })
 
@@ -498,12 +551,6 @@ WhitelistTab:CreateButton({
 		singleSelectedTarget = nil
 		stopFollowing(true)
 		syncSingleDropdown()
-		Luna:Notification({
-			Title = "Target Cleared",
-			Icon = "clear",
-			ImageSource = "Material",
-			Content = "Cleared selected player target."
-		})
 	end
 })
 
@@ -523,6 +570,14 @@ local ConfigTab = Window:CreateTab({
 })
 ConfigTab:BuildConfigSection()
 
+task.spawn(function()
+	while task.wait(0.15) do
+		if ESP_ENABLED then
+			pcall(updateAllESP)
+		end
+	end
+end)
+
 Players.PlayerAdded:Connect(function(newPlayer)
 	if newPlayer ~= player and typeof(newPlayer.Name) == "string" and newPlayer.Name ~= "" then
 		addUsername(newPlayer.Name, false)
@@ -531,22 +586,24 @@ Players.PlayerAdded:Connect(function(newPlayer)
 end)
 
 Players.PlayerRemoving:Connect(function(leftPlayer)
-	if leftPlayer and typeof(leftPlayer.Name) == "string" then
-		local idx = table.find(usernameList, leftPlayer.Name)
-		if idx then
-			table.remove(usernameList, idx)
+	if leftPlayer then
+		removePlayerESP(leftPlayer)
+		if typeof(leftPlayer.Name) == "string" then
+			local idx = table.find(usernameList, leftPlayer.Name)
+			if idx then
+				table.remove(usernameList, idx)
+			end
+			if singleSelectedTarget == leftPlayer.Name then
+				singleSelectedTarget = nil
+				stopFollowing(true)
+			end
+			syncSingleDropdown()
 		end
-		if singleSelectedTarget == leftPlayer.Name then
-			singleSelectedTarget = nil
-			stopFollowing(true)
-		end
-		syncSingleDropdown()
 	end
 end)
 
-task.defer(function()
+task.delay(1, function()
 	rebuildPlayerQuickButtons()
-	-- If there is exactly 1 other player in server, pre-lock that single player's Username
 	if #usernameList == 1 and not singleSelectedTarget then
 		selectSingleUsername(usernameList[1], false)
 	end
